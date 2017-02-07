@@ -1,20 +1,21 @@
-from keras.models import Sequential
-from keras.layers import Dense, Activation
-from keras.objectives import mean_squared_logarithmic_error
 import numpy as np
+from keras.layers import Dense
+from keras.models import Sequential
+from keras.objectives import mean_squared_logarithmic_error
+
 import grouplen
 
 TRAIN_PATH = "data/grouplens/ua.base"
 TEST_PATH = "data/grouplens/ua.test"
 
 
-def create_model(dim, cap):
+def create_model(dim):
     _model = Sequential()
-    _model.add(Dense(input_shape=(dim,), output_dim=200))
-    _model.add(Dense(200))
-    _model.add(Dense(input_dim=200, output_dim=cap))
-    _model.add(Dense(input_dim=cap, output_dim=1))
-    _model.add(Activation('softmax'))
+    _model.add(Dense(input_shape=(dim,), output_dim=300, activation='relu'))
+    _model.add(Dense(200, activation='relu'))
+    _model.add(Dense(200, activation="relu"))
+    _model.add(Dense(input_dim=200, output_dim=200, activation="relu"))
+    _model.add(Dense(input_dim=200, output_dim=1))
     return _model
 
 
@@ -43,7 +44,7 @@ def _create_vectors(users, items, rates):
 
 
 def _get_label(rate):
-    return rate * 1.0 / 5
+    return rate
 
 
 def _get_layer_vector(u_vec, i_vec):
@@ -57,19 +58,18 @@ if __name__ == "__main__":
     _users = [x for x in np.unique(np.append(_users_train, _users_test)).tolist()]
     _items = [x for x in np.unique(np.append(_items_train, _items_test)).tolist()]
 
-    print(_users)
-    print(_items)
     x_train, y_train = _create_vectors(_users, _items, _rates_train)
     x_test, y_test = _create_vectors(_users, _items, _rates_test)
 
     # training and testing
-    model = create_model(x_train.shape[1], 20)
+    model = create_model(x_train.shape[1])
     model.compile(loss='mean_squared_error',
-                  optimizer='adadelta',
+                  optimizer='adam',
                   metrics=['accuracy'])
 
-    model.fit(x_train, y_train, batch_size=40, nb_epoch=10,
+    model.fit(x_train, y_train, nb_epoch=10,
               verbose=1, validation_data=(x_test, y_test))
+
     score = model.evaluate(x_test, y_test, verbose=0)
     print('Test score:', score[0])
     print('Test accuracy:', score[1])
