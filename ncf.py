@@ -1,3 +1,6 @@
+import gc
+import random
+
 import numpy as np
 from keras.layers import Dense
 from keras.models import Sequential
@@ -11,11 +14,10 @@ TEST_PATH = "data/grouplens/ua.test"
 
 def create_model(dim):
     _model = Sequential()
-    _model.add(Dense(input_shape=(dim,), output_dim=300, activation='relu'))
-    _model.add(Dense(200, activation='relu'))
-    _model.add(Dense(200, activation="relu"))
-    _model.add(Dense(input_dim=200, output_dim=200, activation="relu"))
-    _model.add(Dense(input_dim=200, output_dim=1))
+    _model.add(Dense(input_shape=(dim,), output_dim=16))
+    _model.add(Dense(16, activation='relu'))
+    _model.add(Dense(32, activation='relu'))
+    _model.add(Dense(1, activation='relu'))
     return _model
 
 
@@ -23,10 +25,58 @@ def objective_function(y_true, y_pred):
     return mean_squared_logarithmic_error(y_true, y_pred)
 
 
-def _create_vectors(users, items, rates):
+def create_matrix(users, items, rates):
+    a = np.zeros(shape=(len(users), len(items)))
+    for i in range(0, len(users)):
+        a[users[i], items[i]] = rates[i]
+
+    return a
+
+
+def create_vectors(users, items, rates):
     inputs = []
     labels = []
+    co = 0
+
+    num_non_zero = len(rates)
+    num_zero = int(num_non_zero * 2)
+
+    co_zero = 0
+    mat = create_matrix(users, items, rates)
+    for i in range(len(users)):
+        for j in range(len(items)):
+            co += 1
+            rate = mat[i, j]
+
+            u_vec = np.zeros(len(users))
+            u_vec[users.index(i)] = 1
+
+            i_vec = np.zeros(len(items))
+            i_vec[items.index(j)] = 1
+
+            if rate > 0:
+                inputs.append(_get_layer_vector(u_vec, i_vec))
+                labels.append(_get_label(rate))
+            elif random.randint(0, 1) == 1 and co_zero < num_zero:
+                inputs.append(_get_layer_vector(u_vec, i_vec))
+                labels.append(_get_label(0))
+                co_zero += 1
+
+            if co % 300 == 0:
+                yield (np.array(inputs), np.array(labels))
+                inputs = []
+                labels = []
+
+            if num_zero + num_non_zero - co <= 300:
+                return
+
+
+def create_vectors_test(users, items, rates):
+    inputs = []
+    labels = []
+    co = 0
     for rate in rates:
+        co += 1
         user_id = rate[0]
         item_id = rate[1]
         rate = rate[2]
@@ -44,11 +94,15 @@ def _create_vectors(users, items, rates):
 
 
 def _get_label(rate):
-    return rate
+    if rate > 0:
+        return 1
+    else:
+        return 0
 
 
 def _get_layer_vector(u_vec, i_vec):
-    return np.concatenate([u_vec, i_vec])
+    v = np.append(u_vec, i_vec)
+    return v
 
 
 if __name__ == "__main__":
@@ -58,18 +112,19 @@ if __name__ == "__main__":
     _users = [x for x in np.unique(np.append(_users_train, _users_test)).tolist()]
     _items = [x for x in np.unique(np.append(_items_train, _items_test)).tolist()]
 
-    x_train, y_train = _create_vectors(_users, _items, _rates_train)
-    x_test, y_test = _create_vectors(_users, _items, _rates_test)
-
     # training and testing
-    model = create_model(x_train.shape[1])
-    model.compile(loss='mean_squared_error',
+    model = create_model(len(_users) + len(_items))
+    model.compile(loss='binary_crossentropy',
                   optimizer='adam',
                   metrics=['accuracy'])
 
-    model.fit(x_train, y_train, nb_epoch=10,
-              verbose=1, validation_data=(x_test, y_test))
+    test_data = create_vectors_test(_users, _items, _rates_test)
+    print(len(test_data[0]))
+    gc.collect()
+    model.fit_generator(generator=create_vectors(_users, _items, _rates_train),
+                        samples_per_epoch=3000, nb_val_samples=300, nb_epoch=20,
+                        validation_data=create_vectors(_users, _items, _rates_test))
 
-    score = model.evaluate(x_test, y_test, verbose=0)
+    score = model.evaluate(test_data[0], test_data[1])
     print('Test score:', score[0])
     print('Test accuracy:', score[1])
