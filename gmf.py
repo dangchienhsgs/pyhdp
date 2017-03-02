@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
-from keras.layers import Activation
-from keras.layers import Dense
+from keras.layers import Activation, Dense, Merge
 from keras.models import Sequential
 
 names = ['user_id', 'item_id', 'rating', 'timestamp']
@@ -40,15 +39,34 @@ num_samples = len(train.reshape(n_users * n_items, ).nonzero()[0])
 print("Num samples of train ", num_samples)
 
 
-def create_model(dim):
-    model = Sequential()
-    model.add(Dense(input_shape=(dim,), output_dim=32, activation='relu'))
-    model.add(Dense(8, activation='relu'))
-    model.add(Dense(16, activation="relu"))
-    model.add(Dense(16, activation="relu"))
-    model.add(Dense(1))
-    model.add(Activation('sigmoid'))
-    return model
+def create_model(dim_u, dim_v, dim_latent):
+    from keras.layers import Merge
+
+    left_branch = Sequential()
+    left_branch.add(Dense(dim_latent, input_dim=dim_u))
+
+    right_branch = Sequential()
+    right_branch.add(Dense(dim_latent, input_dim=dim_v))
+
+    merged = Merge([left_branch, right_branch], mode='dot')
+
+    final_model = Sequential()
+    final_model.add(merged)
+
+    return final_model
+
+    # final_model.add(Dense(10, activation='softmax'))
+    # model_u = Sequential()
+    # model_u.add(Dense(input_shape=(dim_u,), output_dim=dim_latent, activation='relu'))
+    #
+    # model_v = Sequential()
+    # model_u.add(Dense(input_shape=(dim_v,), output_dim=dim_latent, activation='relu'))
+    #
+    # merge_model = Sequential()
+    # merge_model.add(Merge([model_u, model_v], mode='dot'))
+    # merge_model.add(Activation('sigmoid'))
+    #
+    # return merge_model
 
 
 def generate_one_hot(dim, indice):
@@ -58,7 +76,8 @@ def generate_one_hot(dim, indice):
 
 
 def generator_data(mat):
-    data = []
+    data_u = []
+    data_v = []
     label = []
 
     co = 0
@@ -76,28 +95,32 @@ def generator_data(mat):
                 uv = generate_one_hot(n_users, i)
                 iv = generate_one_hot(n_items, j)
 
-                data.append(np.concatenate([uv, iv]))
+                data_u.append(uv)
+                data_v.append(iv)
                 label.append(1 if mat[i, j] > 0 else 0)
 
-            yield np.array(data), np.array(label)
+            yield (np.array(data_u), np.array(data_v)), np.array(label)
         else:
             for j in np.random.permutation(np.append(zero, non_zero)):
                 c += 1
                 uv = generate_one_hot(n_users, i)
                 iv = generate_one_hot(n_items, j)
 
-                data.append(np.concatenate([uv, iv]))
+                data_u.append(uv)
+                data_v.append(iv)
                 label.append(1 if mat[i, j] > 0 else 0)
                 co += 1
 
-                if co % 60 == 0 or co == num_samples * 2 / 10:
-                    yield np.array(data), np.array(label)
-                    data = []
+                if co % 10 == 0 or co == num_samples * 2 / 10:
+                    yield [np.array(data_u), np.array(data_v)], np.array(label)
+                    data_u = []
+                    data_v = []
                     label = []
 
 
 def generator_data_test(mat):
-    data = []
+    data_u = []
+    data_v = []
     label = []
 
     for i in range(mat.shape[0]):
@@ -109,23 +132,28 @@ def generator_data_test(mat):
         for j in non_zero:
             uv = generate_one_hot(n_users, i)
             iv = generate_one_hot(n_items, j)
-            data.append(np.concatenate([uv, iv]))
+
+            data_u.append(uv)
+            data_v.append(iv)
             label.append(1)
 
-    return np.array(data), np.array(label)
+    return (data_u, data_v), np.array(label)
 
 
 # training and testing
-model = create_model(n_users + n_items)
+model = create_model(n_users, n_items, 8)
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=['accuracy'])
 
-test_data = generator_data_test(test)
+
 model.fit_generator(generator=generator_data(train), nb_epoch=10,
                     samples_per_epoch=18000,
-                    validation_data=test_data)
+                    nb_val_samples=60,
+                    validation_data=generator_data(test))
 
-score = model.evaluate(test_data[0], test_data[1])
+score = model.evaluate_generator(generator_data(test), val_samples=900)
 print('Test score:', score[0])
 print('Test accuracy:', score[1])
+#
+# print(element_wise(np.array([1, 2]), np.array([3, 5])))
